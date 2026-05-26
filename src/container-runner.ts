@@ -50,7 +50,7 @@ const activeContainers = new Map<string, { process: ChildProcess; containerName:
 /**
  * In-flight wake promises, keyed by session id. Deduplicates concurrent
  * `wakeContainer` calls while the first spawn is still mid-setup (async
- * buildContainerArgs, OneCLI gateway apply, etc.) — otherwise a second
+ * buildContainerArgs, secret injection, etc.) — otherwise a second
  * wake in that window passes the `activeContainers.has` check and spawns
  * a duplicate container against the same session directory, producing
  * racy double-replies.
@@ -72,7 +72,7 @@ export function isContainerRunning(sessionId: string): boolean {
  * The container runs the v2 agent-runner which polls the session DB.
  *
  * Contract: never throws. Returns `true` on successful spawn, `false` on
- * transient spawn failure (e.g. OneCLI gateway unreachable). Callers don't
+ * transient spawn failure (e.g. docker not available). Callers don't
  * need to wrap — the inbound row stays pending and host-sweep retries on
  * its next tick. Callers that care (e.g. the router's typing indicator)
  * can branch on the boolean.
@@ -128,17 +128,13 @@ async function spawnContainer(session: Session): Promise<void> {
 
   const mounts = buildMounts(agentGroup, session, containerConfig, contribution);
   const containerName = `nanoclaw-v2-${agentGroup.folder}-${Date.now()}`;
-  // Stable agent identifier — always the agent group id, reversible via
-  // getAgentGroup() for approval routing.
-  const agentIdentifier = agentGroup.id;
-  const args = await buildContainerArgs(
+  const args = buildContainerArgs(
     mounts,
     containerName,
     agentGroup,
     containerConfig,
     provider,
     contribution,
-    agentIdentifier,
   );
 
   log.info('Spawning container', { sessionId: session.id, agentGroup: agentGroup.name, containerName });
@@ -391,15 +387,14 @@ function syncSkillSymlinks(claudeDir: string, containerConfig: import('./contain
   }
 }
 
-async function buildContainerArgs(
+function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   agentGroup: AgentGroup,
   containerConfig: import('./container-config.js').ContainerConfig,
   provider: string,
   providerContribution: ProviderContainerContribution,
-  agentIdentifier?: string,
-): Promise<string[]> {
+): string[] {
   const args: string[] = ['run', '--rm', '--name', containerName, '--label', CONTAINER_INSTALL_LABEL];
 
   // Environment — only vars read by code we don't own.
