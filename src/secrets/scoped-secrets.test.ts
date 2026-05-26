@@ -118,10 +118,57 @@ describe('getScopedSecrets', () => {
   });
 
   it('throws a clear error when SECRETS_BACKEND === "gcp"', () => {
-    tmpFile = writeTempSecrets({ CLAUDE_CODE_OAUTH_TOKEN: '' });
-
-    withEnv({ SECRETS_FILE: tmpFile, SECRETS_BACKEND: 'gcp' }, () => {
+    withEnv({ SECRETS_BACKEND: 'gcp' }, () => {
       expect(() => getScopedSecrets()).toThrow('GCP Secret Manager backend is wired in Phase 5');
+    });
+  });
+
+  it('throws with "not found" and the path when SECRETS_FILE does not exist', () => {
+    const nonExistentPath = path.join(os.tmpdir(), `does-not-exist-${Date.now()}.json`);
+
+    withEnv({ SECRETS_FILE: nonExistentPath, SECRETS_BACKEND: undefined }, () => {
+      let thrown: Error | undefined;
+      try {
+        getScopedSecrets();
+      } catch (e) {
+        thrown = e as Error;
+      }
+      expect(thrown).toBeDefined();
+      expect(thrown!.message).toContain('not found');
+      expect(thrown!.message).toContain(nonExistentPath);
+      // message must NOT contain secret-looking values (only the config path is acceptable)
+      expect(thrown!.message).not.toContain('password');
+      expect(thrown!.message).not.toContain('token');
+    });
+  });
+
+  it('throws with "Failed to parse" and the path for malformed JSON, without leaking file contents', () => {
+    const malformedContent = '{not json "secret-value-abc123"';
+    tmpFile = path.join(os.tmpdir(), `malformed-${Date.now()}.json`);
+    fs.writeFileSync(tmpFile, malformedContent, 'utf-8');
+
+    withEnv({ SECRETS_FILE: tmpFile, SECRETS_BACKEND: undefined }, () => {
+      let thrown: Error | undefined;
+      try {
+        getScopedSecrets();
+      } catch (e) {
+        thrown = e as Error;
+      }
+      expect(thrown).toBeDefined();
+      expect(thrown!.message).toContain('Failed to parse');
+      expect(thrown!.message).toContain(tmpFile!);
+      // must NOT echo the raw file contents
+      expect(thrown!.message).not.toContain(malformedContent);
+      expect(thrown!.message).not.toContain('secret-value-abc123');
+    });
+  });
+
+  it('throws with "must contain a JSON object" for non-object JSON root', () => {
+    tmpFile = path.join(os.tmpdir(), `non-object-${Date.now()}.json`);
+    fs.writeFileSync(tmpFile, '"just a string"', 'utf-8');
+
+    withEnv({ SECRETS_FILE: tmpFile, SECRETS_BACKEND: undefined }, () => {
+      expect(() => getScopedSecrets()).toThrow('must contain a JSON object');
     });
   });
 });
