@@ -24,6 +24,7 @@ groups/*
 *.keys.json
 .env
 .env*
+secrets.local.json
 
 # Temp files
 .tmp-*
