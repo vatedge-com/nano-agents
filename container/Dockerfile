@@ -20,8 +20,6 @@ ARG INSTALL_CJK_FONTS=false
 # mean every rebuild silently picks up the latest and can break in lockstep
 # across all users.
 ARG CLAUDE_CODE_VERSION=2.1.128
-ARG AGENT_BROWSER_VERSION=latest
-ARG VERCEL_VERSION=52.2.1
 ARG BUN_VERSION=1.3.12
 
 # ---- System dependencies -----------------------------------------------------
@@ -30,38 +28,12 @@ ARG BUN_VERSION=1.3.12
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-        chromium \
-        fonts-liberation \
-        fonts-noto-color-emoji \
-        libgbm1 \
-        libnss3 \
-        libatk-bridge2.0-0 \
-        libgtk-3-0 \
-        libx11-xcb1 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxrandr2 \
-        libasound2 \
-        libpangocairo-1.0-0 \
-        libcups2 \
-        libdrm2 \
-        libxshmfence1 \
         ca-certificates \
         curl \
         git \
         tini \
         unzip \
-    && if [ "$INSTALL_CJK_FONTS" = "true" ]; then \
-        apt-get install -y --no-install-recommends fonts-noto-cjk; \
-       fi \
     && rm -rf /var/lib/apt/lists/*
-
-# Chromium path for agent-browser / Playwright consumers
-ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
-# Belt-and-braces: prevent Playwright's postinstall from downloading its own
-# ~300MB Chromium. We've already installed the system one above.
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 # ---- Bun runtime -------------------------------------------------------------
 # Install via the official script (handles multi-arch detection), then move
@@ -77,8 +49,12 @@ WORKDIR /app
 
 COPY agent-runner/package.json agent-runner/bun.lock ./
 
+# Drop the musl-linked claude binary after install — this is a Debian (glibc)
+# image, so the musl variant (~213MB) can never run; the glibc one stays.
+# Removed in the same layer so it never lands in the committed image.
 RUN --mount=type=cache,target=/root/.bun/install/cache \
-    bun install --frozen-lockfile
+    bun install --frozen-lockfile && \
+    rm -rf node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64-musl
 
 # ---- pnpm + global Node CLIs -------------------------------------------------
 # Most stable first, most frequently bumped last. Bumping claude-code
@@ -100,14 +76,7 @@ ARG PNPM_VERSION=10.33.0
 RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 
 RUN --mount=type=cache,target=/root/.cache/pnpm \
-    echo "only-built-dependencies[]=agent-browser" > /root/.npmrc && \
-    echo "only-built-dependencies[]=@anthropic-ai/claude-code" >> /root/.npmrc && \
-    pnpm install -g "vercel@${VERCEL_VERSION}"
-
-RUN --mount=type=cache,target=/root/.cache/pnpm \
-    pnpm install -g "agent-browser@${AGENT_BROWSER_VERSION}"
-
-RUN --mount=type=cache,target=/root/.cache/pnpm \
+    echo "only-built-dependencies[]=@anthropic-ai/claude-code" > /root/.npmrc && \
     pnpm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
 # ---- ncl CLI wrapper ----------------------------------------------------------
