@@ -402,10 +402,11 @@ function buildContainerArgs(
   }
 
   // Inject container-scoped secrets as env. Least-privilege allowlist —
-  // P2 will add GITHUB_TOKEN, CLICKUP_API_TOKEN, and Datadog keys when those
-  // MCP tools are wired. We deliberately do NOT pass the full host secret set
-  // (e.g. Slack tokens) into the container.
-  const CONTAINER_SECRET_KEYS = ['CLAUDE_CODE_OAUTH_TOKEN'] as const;
+  // CLAUDE_CODE_OAUTH_TOKEN authenticates the runner; GITHUB_TOKEN lets the
+  // agent push branches + open PRs (gh reads it from env). CLICKUP/Datadog keys
+  // get added when those MCP tools are wired. We deliberately do NOT pass the
+  // full host secret set (e.g. Slack tokens) into the container.
+  const CONTAINER_SECRET_KEYS = ['CLAUDE_CODE_OAUTH_TOKEN', 'GITHUB_TOKEN'] as const;
   const secrets = getScopedSecrets();
   for (const key of CONTAINER_SECRET_KEYS) {
     const value = secrets[key];

@@ -93,6 +93,26 @@ RUN mkdir -p /workspace/group /workspace/extra && \
     chown -R node:node /workspace && \
     chmod 777 /home/node
 
+# Trust bind-mounted repos. They appear under a different owner inside the
+# container (uid remap), which git rejects as "dubious ownership", breaking
+# git operations on mounted code. Containers are ephemeral and only mount host
+# paths the operator explicitly allowlists, so trusting all repos is safe here.
+RUN git config --system --add safe.directory '*'
+
+# GitHub CLI — used by the agent to open draft PRs (`gh pr create --draft`).
+# gh reads GITHUB_TOKEN from the env at runtime for auth. Arch-detected,
+# pinned to the latest release at build time.
+RUN ARCH=$(dpkg --print-architecture) && \
+    GH_VER=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | grep '"tag_name"' | head -1 | sed -E 's/.*"v?([0-9.]+)".*/\1/') && \
+    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VER}/gh_${GH_VER}_linux_${ARCH}.tar.gz" | tar -xz -C /tmp && \
+    install "/tmp/gh_${GH_VER}_linux_${ARCH}/bin/gh" /usr/local/bin/gh && \
+    rm -rf "/tmp/gh_${GH_VER}_linux_${ARCH}" && \
+    gh --version
+
+# Git push auth: supply the token from the GITHUB_TOKEN env var at push time
+# via a credential helper. Keeps the token out of .git/config and remote URLs.
+RUN git config --system credential.helper '!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f'
+
 USER node
 WORKDIR /workspace/group
 
