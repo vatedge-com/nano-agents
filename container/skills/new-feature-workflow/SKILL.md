@@ -13,29 +13,56 @@ You drive feature work through four phases. Each phase has a precise entry/exit;
 - Origin is GitHub `vatedge-com/vatedge`. `git push` and `gh` are already authenticated via `GITHUB_TOKEN` in env.
 - The integration branch is **`dev`** (long-running). The main branch is **`main`**. Task branches are **`dev-agent/<short-slug>`** and are ALWAYS branched off `origin/main`, never off `dev` or off a previous task branch.
 
-## Phase 1 — Intake & clarification
+## Phase 1 — Intake, clarification, and explicit approval
 
 Enter when: you're @-mentioned in Slack with a feature request, bug report, or change request that touches the VatEdge product. (Do NOT enter for ops questions, log reads, or non-product work — those use other skills.)
 
+Phase 1 has **two distinct steps**, both mandatory. You do NOT move to Phase 2 until the user explicitly approves the plan in Step 2.
+
+### Step 1 — Clarify
+
 ```dot
 digraph clarify {
-    "Receive request" -> "Add :eyes: reaction";
-    "Add :eyes: reaction" -> "Read what you need (1-3 files max)";
+    "Receive request" -> "Add :eyes: reaction immediately";
+    "Add :eyes: reaction immediately" -> "Read what you need (1-3 files max)";
     "Read what you need (1-3 files max)" -> "Genuine ambiguities?";
-    "Genuine ambiguities?" -> "Reply with questions, list 1-4 at most" [label="yes"];
-    "Genuine ambiguities?" -> "Confirm scope in one sentence + move to Phase 2" [label="no"];
-    "Reply with questions, list 1-4 at most" -> "Wait for answers (stay silent on chatter in thread)";
-    "Wait for answers (stay silent on chatter in thread)" -> "Genuine ambiguities?";
+    "Genuine ambiguities?" -> "Reply with questions (1-4)" [label="yes"];
+    "Genuine ambiguities?" -> "Reply 'No further questions.' then go to Step 2" [label="no"];
+    "Reply with questions (1-4)" -> "Wait for answers";
+    "Wait for answers" -> "Genuine ambiguities?";
 }
 ```
 
-Hard rules for Phase 1:
-- **Never start coding until every blocking ambiguity is resolved.** Coding the wrong thing wastes a deploy cycle.
-- **One round of questions is the goal, two is acceptable, three means you're asking poorly.** Don't ask things you can answer by reading the codebase yourself — read first, ask second.
-- Each question should change what you'd build. If the answer doesn't change your implementation, don't ask it.
-- If the request is already fully specified ("change the dashboard nav label from 'Entities' to 'Companies'"), skip questions — jump to Phase 2 with a one-line scope confirmation.
+Rules for Step 1:
+- **Always read first, ask second.** Don't ask things you can answer by looking at 1–3 files. If you can't find the answer in the codebase in ~60s of reading, that's a question worth asking.
+- **Each question must change what you'd build.** If the answer wouldn't change your implementation, don't ask it.
+- One round of questions is the goal; two is acceptable; three means you're asking poorly.
+- When you have no more questions, **say so explicitly**: `No further questions.` — then immediately move to Step 2 in the same or next message.
 
-When you exit Phase 1, write a state file (see "State files" below) with `stage: "clarified"`.
+### Step 2 — Propose plan + get explicit approval
+
+After clarifying (or after deciding there were no ambiguities), post a brief plan and ask for permission to proceed. Format:
+
+> **Plan:**
+> - `<file/area to change>` — `<what you'll do>` (1 to 5 bullets max)
+> - …
+>
+> Branch will be `dev-agent/<slug>`. OK to proceed?
+
+Then **STOP**. Do not branch, do not write code, do not push anything until the user replies with a clear go-ahead.
+
+Approval signals you may proceed on: `go`, `yes`, `ok`, `proceed`, `do it`, `ship it`, `lgtm`, `👍`. Anything ambiguous → ask once: "Treating that as a go — proceed?" and wait for a clear yes.
+
+If the user pushes back with changes to the plan, integrate the feedback and re-post the updated plan. Loop until they say go.
+
+When (and only when) you have explicit approval, write the state file with `stage: "approved"` and move to Phase 2.
+
+### Hard rules for Phase 1
+
+- **NEVER start coding (Phase 2) without explicit go-ahead from Step 2.** Coding without approval is the worst failure mode of this skill. Even when the request looks fully specified ("change label X to Y"), STILL post the plan and STILL wait for go-ahead — the user wants the chance to course-correct before any branch exists.
+- **NEVER conflate Step 1 and Step 2.** "No further questions" is not approval; the user must see the plan and explicitly approve.
+- **NEVER stay silent for more than ~60 seconds.** If reading the codebase is taking longer, send a one-line check-in: "Looking at `<area>` — back in a sec." Silent typing-indicator for minutes is a UX failure.
+- The :eyes: reaction is added the instant the message arrives, BEFORE any reading. It's the "I see you" handshake, not an "I'm done" badge — don't react late.
 
 ## Phase 2 — Develop on the task branch
 
