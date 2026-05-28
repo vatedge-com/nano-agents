@@ -31,6 +31,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         ca-certificates \
         curl \
         git \
+        python3 \
+        python3-crcmod \
         tini \
         unzip \
     && rm -rf /var/lib/apt/lists/*
@@ -112,6 +114,25 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # Git push auth: supply the token from the GITHUB_TOKEN env var at push time
 # via a credential helper. Keeps the token out of .git/config and remote URLs.
 RUN git config --system credential.helper '!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f'
+
+# gcloud CLI — used by the agent to query Cloud Run, logs, etc. on
+# vatedge-prod (via impersonation from staging SA) and vatedge-staging.
+# Pin to a known-good release. Install only what's needed (no anthos / kubectl
+# / app-engine) to keep image size down (~120MB added).
+ARG GCLOUD_VERSION=506.0.0
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in \
+      amd64) GARCH=x86_64 ;; \
+      arm64) GARCH=arm ;; \
+      *) echo "unsupported arch $ARCH"; exit 1 ;; \
+    esac && \
+    curl -fsSL "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-${GCLOUD_VERSION}-linux-${GARCH}.tar.gz" -o /tmp/gcloud.tgz && \
+    tar -xzf /tmp/gcloud.tgz -C /opt && \
+    /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --command-completion=false --path-update=false && \
+    ln -s /opt/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud && \
+    ln -s /opt/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil && \
+    rm -f /tmp/gcloud.tgz && \
+    gcloud --version | head -3
 
 USER node
 WORKDIR /workspace/group

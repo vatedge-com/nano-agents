@@ -3,10 +3,13 @@ import path from 'path';
 
 export interface ScopedSecrets {
   CLAUDE_CODE_OAUTH_TOKEN: string; // runner credential (subscription token)
-  SLACK_BOT_TOKEN?: string;
-  SLACK_APP_TOKEN?: string;
+  SLACK_BOT_TOKEN?: string; // host-side: Slack adapter (Events API)
+  SLACK_SIGNING_SECRET?: string; // host-side: Slack webhook verification
+  SLACK_TEAM_ID?: string; // Slack workspace id (T0B0H0WKZEZ)
   GITHUB_TOKEN?: string;
-  CLICKUP_API_TOKEN?: string;
+  CLICKUP_API_TOKEN?: string; // ClickUp pk_ personal API token
+  CLICKUP_TEAM_ID?: string; // ClickUp workspace/team id
+  GOOGLE_APPLICATION_CREDENTIALS?: string; // path inside container to SA key json
   [key: string]: string | undefined;
 }
 
@@ -14,9 +17,12 @@ export interface ScopedSecrets {
 const KNOWN_KEYS: ReadonlyArray<keyof ScopedSecrets> = [
   'CLAUDE_CODE_OAUTH_TOKEN',
   'SLACK_BOT_TOKEN',
-  'SLACK_APP_TOKEN',
+  'SLACK_SIGNING_SECRET',
+  'SLACK_TEAM_ID',
   'GITHUB_TOKEN',
   'CLICKUP_API_TOKEN',
+  'CLICKUP_TEAM_ID',
+  'GOOGLE_APPLICATION_CREDENTIALS',
 ];
 
 /**

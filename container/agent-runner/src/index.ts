@@ -81,8 +81,24 @@ async function main(): Promise<void> {
     },
   };
 
+  // Substitute $VAR / ${VAR} references in MCP server env values from the
+  // container's process.env. The host injects scoped secrets (SLACK_BOT_TOKEN,
+  // CLICKUP_API_TOKEN, GOOGLE_APPLICATION_CREDENTIALS, ...) as container env
+  // vars; container.json references them as `"$SLACK_BOT_TOKEN"` so the literal
+  // values never land in a committed file.
+  const substituteEnvRefs = (env: Record<string, string>): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(env)) {
+      out[k] = v.replace(/\$\{([A-Z_][A-Z0-9_]*)\}|\$([A-Z_][A-Z0-9_]*)/g, (_, a, b) => {
+        const name = a ?? b;
+        return process.env[name] ?? '';
+      });
+    }
+    return out;
+  };
+
   for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
-    mcpServers[name] = serverConfig;
+    mcpServers[name] = { ...serverConfig, env: substituteEnvRefs(serverConfig.env ?? {}) };
     log(`Additional MCP server: ${name} (${serverConfig.command})`);
   }
 

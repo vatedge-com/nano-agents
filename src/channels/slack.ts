@@ -4,17 +4,19 @@
  */
 import { createSlackAdapter } from '@chat-adapter/slack';
 
-import { readEnvFile } from '../env.js';
+import { getScopedSecrets } from '../secrets/scoped-secrets.js';
 import { createChatSdkBridge } from './chat-sdk-bridge.js';
 import { registerChannelAdapter } from './channel-registry.js';
 
 registerChannelAdapter('slack', {
   factory: () => {
-    const env = readEnvFile(['SLACK_BOT_TOKEN', 'SLACK_SIGNING_SECRET']);
-    if (!env.SLACK_BOT_TOKEN) return null;
+    // Credentials live in secrets.local.json (host-side scoped secrets), not
+    // .env — single source of truth for all secrets in this fork.
+    const secrets = getScopedSecrets();
+    if (!secrets.SLACK_BOT_TOKEN) return null;
     const slackAdapter = createSlackAdapter({
-      botToken: env.SLACK_BOT_TOKEN,
-      signingSecret: env.SLACK_SIGNING_SECRET,
+      botToken: secrets.SLACK_BOT_TOKEN,
+      signingSecret: secrets.SLACK_SIGNING_SECRET,
     });
     const bridge = createChatSdkBridge({ adapter: slackAdapter, concurrency: 'concurrent', supportsThreads: true });
     bridge.resolveChannelName = async (platformId: string) => {

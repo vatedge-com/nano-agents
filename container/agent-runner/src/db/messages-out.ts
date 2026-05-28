@@ -90,11 +90,17 @@ export function writeMessageOut(msg: WriteMessageOut): number {
 export function getMessageIdBySeq(seq: number): string | null {
   const inbound = getInboundDb();
 
-  // Inbound messages: ID is already the platform message ID
+  // Inbound messages: ID is the platform message ID, namespaced by agent_group_id
+  // to keep messages_in.id unique across fanout (see router.ts:messageIdForAgent).
+  // Strip the trailing ":ag-..." suffix so consumers (Slack addReaction etc.) get
+  // the raw platform-side id.
   const inRow = inbound.prepare('SELECT id FROM messages_in WHERE seq = ?').get(seq) as
     | { id: string }
     | undefined;
-  if (inRow) return inRow.id;
+  if (inRow) {
+    const m = inRow.id.match(/^(.+):(ag-[^:]+)$/);
+    return m ? m[1]! : inRow.id;
+  }
 
   // Outbound messages: look up platform message ID from delivered table
   const outRow = getOutboundDb().prepare('SELECT id FROM messages_out WHERE seq = ?').get(seq) as

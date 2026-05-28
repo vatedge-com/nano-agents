@@ -304,6 +304,14 @@ function buildMounts(
     mounts.push({ hostPath: skillsSrc, containerPath: '/app/skills', readonly: true });
   }
 
+  // claude-mem plugin — read-only bind mount so the Claude Agent SDK inside
+  // the container finds it at its expected plugin location.
+  mounts.push({
+    hostPath: '/Users/rotemassa/.claude/plugins/cache/thedotmack/claude-mem/13.0.0',
+    containerPath: '/home/node/.claude/plugins/claude-mem',
+    readonly: true,
+  });
+
   // Additional mounts from container config
   if (containerConfig.additionalMounts && containerConfig.additionalMounts.length > 0) {
     const validated = validateAdditionalMounts(containerConfig.additionalMounts, agentGroup.name);
@@ -406,7 +414,15 @@ function buildContainerArgs(
   // agent push branches + open PRs (gh reads it from env). CLICKUP/Datadog keys
   // get added when those MCP tools are wired. We deliberately do NOT pass the
   // full host secret set (e.g. Slack tokens) into the container.
-  const CONTAINER_SECRET_KEYS = ['CLAUDE_CODE_OAUTH_TOKEN', 'GITHUB_TOKEN'] as const;
+  const CONTAINER_SECRET_KEYS = [
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'GITHUB_TOKEN',
+    'SLACK_BOT_TOKEN',
+    'SLACK_TEAM_ID',
+    'CLICKUP_API_TOKEN',
+    'CLICKUP_TEAM_ID',
+    'GOOGLE_APPLICATION_CREDENTIALS',
+  ] as const;
   const secrets = getScopedSecrets();
   for (const key of CONTAINER_SECRET_KEYS) {
     const value = secrets[key];

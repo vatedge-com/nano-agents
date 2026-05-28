@@ -25,6 +25,11 @@ groups/*
 .env
 .env*
 secrets.local.json
+# GCP service-account keys + any other credential files dropped here. The
+# directory itself is intentionally untracked so a key never leaks via
+# `git add .`. Anchored to repo root so we don't accidentally hide
+# src/secrets/ (the scoped-secrets module).
+/secrets/
 
 # Temp files
 .tmp-*
