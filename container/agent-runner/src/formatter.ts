@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 import { findByRouting } from './destinations.js';
 import type { MessageInRow } from './db/messages-in.js';
 import { TIMEZONE, formatLocalTime } from './timezone.js';
@@ -174,7 +177,7 @@ function formatSingleChat(msg: MessageInRow): string {
   const idAttr = msg.seq != null ? ` id="${msg.seq}"` : '';
   const replyAttr = content.replyTo?.id ? ` reply_to="${escapeXml(String(content.replyTo.id))}"` : '';
   const replyPrefix = formatReplyContext(content.replyTo);
-  const attachmentsSuffix = formatAttachments(content.attachments);
+  const attachmentsSuffix = formatAttachments(content.attachments, msg.seq);
 
   const fromAttr = originAttr(msg);
 
@@ -239,20 +242,62 @@ function formatReplyContext(replyTo: any): string {
   return `\n  <quoted_message from="${escapeXml(sender)}">${escapeXml(text)}</quoted_message>\n`;
 }
 
+// Where inbound attachments are persisted so the agent can `Read` them. Per-msg
+// subdir avoids name collisions across messages and gives the agent stable
+// paths to reference in tool calls.
+const ATTACHMENT_ROOT = '/workspace/agent/attachments';
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function formatAttachments(attachments: any[] | undefined): string {
+function formatAttachments(attachments: any[] | undefined, msgSeq?: number | null): string {
   if (!Array.isArray(attachments) || attachments.length === 0) return '';
-  const parts = attachments.map((a) => {
-    const name = a.name || a.filename || 'attachment';
-    const type = a.type || 'file';
-    const localPath = a.localPath ? `/workspace/${a.localPath}` : '';
-    const url = a.url || '';
+  const parts = attachments.map((a, idx) => {
+    const name = a.name || a.filename || `attachment-${idx}`;
+    const type = a.type || (a.mimeType?.startsWith('image/') ? 'image' : 'file');
+    const localPath = persistAttachment(a, name, idx, msgSeq);
+
     if (localPath) {
+      // For images, the Claude SDK's Read tool ingests the file as a vision
+      // input. For other files, the agent can Read/grep the path.
       return `[${type}: ${escapeXml(name)} — saved to ${escapeXml(localPath)}]`;
     }
+
+    const url = a.url || '';
     return url ? `[${type}: ${escapeXml(name)} (${escapeXml(url)})]` : `[${type}: ${escapeXml(name)}]`;
   });
   return '\n' + parts.join('\n');
+}
+
+/**
+ * If the chat-sdk bridge inlined attachment bytes as base64 in `a.data`, write
+ * them to disk under /workspace/agent/attachments/<msgSeq>/<filename> and
+ * return the absolute container path. Falls back to `a.localPath` if the bridge
+ * already persisted the file itself. Returns null on any failure so the formatter
+ * can fall through to the URL/name-only rendering.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function persistAttachment(a: any, name: string, idx: number, msgSeq?: number | null): string | null {
+  if (a.localPath && typeof a.localPath === 'string') {
+    return a.localPath.startsWith('/') ? a.localPath : `/workspace/${a.localPath}`;
+  }
+  if (typeof a.data !== 'string' || a.data.length === 0) return null;
+  if (msgSeq == null) return null;
+
+  // Sanitize: keep alnum, dot, dash, underscore. Prefix with idx to avoid
+  // clobbering same-named attachments inside one message.
+  const safeName = String(name).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'attachment';
+  const dir = path.join(ATTACHMENT_ROOT, String(msgSeq));
+  const file = path.join(dir, `${idx}-${safeName}`);
+
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, Buffer.from(a.data, 'base64'));
+    return file;
+  } catch (err) {
+    // Don't crash the formatter on disk issues — the agent will still see
+    // the attachment metadata via the fallback rendering.
+    console.error(`[formatter] failed to persist attachment ${name}:`, err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
