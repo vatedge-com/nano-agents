@@ -305,9 +305,12 @@ function buildMounts(
   }
 
   // claude-mem plugin — read-only bind mount so the Claude Agent SDK inside
-  // the container finds it at its expected plugin location.
+  // the container finds it at its expected plugin location. The host path is
+  // environment-specific (dev macOS cache vs. the prod VM data disk), so it's
+  // overridable via CLAUDE_MEM_PLUGIN_DIR; the dev default is the local cache.
   mounts.push({
-    hostPath: '/Users/rotemassa/.claude/plugins/cache/thedotmack/claude-mem/13.0.0',
+    hostPath:
+      process.env['CLAUDE_MEM_PLUGIN_DIR'] ?? '/Users/rotemassa/.claude/plugins/cache/thedotmack/claude-mem/13.0.0',
     containerPath: '/home/node/.claude/plugins/claude-mem',
     readonly: true,
   });

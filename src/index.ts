@@ -16,6 +16,7 @@ import { ensureContainerRuntimeRunning, cleanupOrphans } from './container-runti
 import { startActiveDeliveryPoll, startSweepDeliveryPoll, setDeliveryAdapter, stopDeliveryPolls } from './delivery.js';
 import { startHostSweep, stopHostSweep } from './host-sweep.js';
 import { routeInbound } from './router.js';
+import { prefetchScopedSecrets } from './secrets/scoped-secrets.js';
 import { log } from './log.js';
 
 // Response + shutdown registries live in response-registry.ts to break the
@@ -68,6 +69,11 @@ async function main(): Promise<void> {
 
   // 0. Circuit breaker — backoff on rapid restarts
   await enforceStartupBackoff();
+
+  // 0b. Prefetch secrets from GCP Secret Manager (gcp backend only) so the
+  // synchronous getScopedSecrets() hot path can serve from cache. Must run
+  // before channel adapters and container spawning.
+  await prefetchScopedSecrets();
 
   // 1. Init central DB
   const dbPath = path.join(DATA_DIR, 'v2.db');

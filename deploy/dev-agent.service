@@ -1,0 +1,28 @@
+[Unit]
+Description=Vatedge dev-agent (NanoClaw v2) host
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=devagent
+Group=docker
+WorkingDirectory=/opt/vatedge-dev-agent
+
+# Runtime config. Secrets are NOT here — they are fetched from GCP Secret
+# Manager at boot (SECRETS_BACKEND=gcp) via the VM's attached service account.
+Environment=NODE_ENV=production
+Environment=SECRETS_BACKEND=gcp
+Environment=GCP_PROJECT=vatedge-prod
+Environment=CLAUDE_MEM_PLUGIN_DIR=/mnt/dev-agent-data/claude-mem
+Environment=MAX_CONCURRENT_CONTAINERS=3
+Environment=CONTAINER_TIMEOUT=1800000
+Environment=TZ=Europe/Brussels
+
+ExecStart=/usr/bin/node /opt/vatedge-dev-agent/dist/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

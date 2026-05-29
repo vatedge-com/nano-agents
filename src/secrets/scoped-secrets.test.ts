@@ -117,9 +117,12 @@ describe('getScopedSecrets', () => {
     );
   });
 
-  it('throws a clear error when SECRETS_BACKEND === "gcp"', () => {
+  it('throws a clear error when SECRETS_BACKEND === "gcp" but the cache was not prefetched', () => {
     withEnv({ SECRETS_BACKEND: 'gcp' }, () => {
-      expect(() => getScopedSecrets()).toThrow('GCP Secret Manager backend is wired in Phase 5');
+      // In gcp mode getScopedSecrets() serves synchronously from a cache that
+      // prefetchScopedSecrets() must populate at startup. Without the prefetch
+      // it throws a directive to call prefetchScopedSecrets() first.
+      expect(() => getScopedSecrets()).toThrow('GCP secrets not prefetched');
     });
   });
 

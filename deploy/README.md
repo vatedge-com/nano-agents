@@ -1,0 +1,121 @@
+# Vatedge dev-agent — VM deploy runbook
+
+Hardened single-VM production deploy of the NanoClaw v2 fork. The GCP resources
+(project, service account, data disk, Secret Manager secrets) already exist —
+this runbook covers VM creation, first boot, and redeploys.
+
+## Fixed facts
+
+| Thing | Value |
+|-------|-------|
+| Project | `vatedge-prod` |
+| Zone | `europe-west1-b` |
+| Service account | `dev-agent@vatedge-prod.iam.gserviceaccount.com` |
+| Data disk | `dev-agent-data` (attached as `/dev/disk/by-id/google-dev-agent-data`) |
+| Data mount | `/mnt/dev-agent-data` |
+| Install dir | `/opt/vatedge-dev-agent` |
+| Run user / group | `devagent` / `docker` |
+| Service | `dev-agent.service` (systemd) |
+
+## Pieces
+
+| File | Role |
+|------|------|
+| `startup.sh` | Root, idempotent VM startup script. Mounts the data disk, installs Docker/Node/pnpm/git/gh, creates `devagent`, clones the fork, symlinks `data/groups/store` onto the data disk, runs `deploy.sh`, installs+enables the systemd unit. |
+| `deploy.sh` | Redeploy path (runs as `devagent`): `git reset --hard`, `pnpm install --frozen-lockfile`, `pnpm run build`, `./container/build.sh`, restart service. |
+| `dev-agent.service` | systemd unit. `SECRETS_BACKEND=gcp`, `GCP_PROJECT=vatedge-prod`, `CLAUDE_MEM_PLUGIN_DIR=/mnt/dev-agent-data/claude-mem`. No secret env file. |
+
+## Before first boot — edit these
+
+1. `startup.sh`: set `REPO_URL` and `REPO_BRANCH` (marked `# TODO`).
+2. `deploy.sh`: confirm the `REPO_BRANCH` default matches.
+
+## Secrets (GCP Secret Manager)
+
+The host runs with `SECRETS_BACKEND=gcp`. At boot it fetches each secret via the
+VM's attached service account (Application Default Credentials — no key file).
+Secrets are named `dev-agent-<lowercased_key>`, version `latest`:
+
+| ScopedSecrets key | Secret Manager name |
+|-------------------|---------------------|
+| CLAUDE_CODE_OAUTH_TOKEN | `dev-agent-claude_code_oauth_token` |
+| GITHUB_TOKEN | `dev-agent-github_token` |
+| SLACK_BOT_TOKEN | `dev-agent-slack_bot_token` |
+| SLACK_APP_TOKEN | `dev-agent-slack_app_token` |
+| SLACK_SIGNING_SECRET | `dev-agent-slack_signing_secret` |
+| SLACK_TEAM_ID | `dev-agent-slack_team_id` |
+| CLICKUP_API_TOKEN | `dev-agent-clickup_api_token` |
+| CLICKUP_TEAM_ID | `dev-agent-clickup_team_id` |
+
+A missing/empty secret is tolerated and skipped (it won't crash the host).
+`GOOGLE_APPLICATION_CREDENTIALS` is NOT a Secret Manager fetch — if needed it
+stays an on-disk path supplied via env.
+
+The service account needs `roles/secretmanager.secretAccessor` on each secret.
+
+### Slack app-level token (required for Socket Mode)
+
+The Slack adapter prefers **Socket Mode** (outbound WebSocket — no public
+webhook endpoint). For that, `SLACK_APP_TOKEN` must be a Slack **app-level
+token** (`xapp-…`) with the `connections:write` scope, created under the Slack
+app's *Basic Information → App-Level Tokens*, and Socket Mode must be enabled in
+the app config.
+
+- If `dev-agent-slack_app_token` is present and starts with `xapp-`, the host
+  uses Socket Mode.
+- If absent/empty, the host falls back to the inbound Events-API webhook adapter
+  (which requires a public URL). For a VM with no inbound ingress, set the
+  app-level token.
+
+`SLACK_SIGNING_SECRET` is still required in Socket Mode — the adapter re-injects
+each Socket Mode envelope through the existing signed-webhook code path, so it
+signs the forged request with the signing secret internally.
+
+## VM creation (gcloud)
+
+```bash
+gcloud compute instances create dev-agent \
+  --project=vatedge-prod \
+  --zone=europe-west1-b \
+  --machine-type=e2-standard-4 \
+  --service-account=dev-agent@vatedge-prod.iam.gserviceaccount.com \
+  --scopes=cloud-platform \
+  --image-family=debian-12 --image-project=debian-cloud \
+  --disk=name=dev-agent-data,device-name=dev-agent-data,mode=rw,auto-delete=no \
+  --metadata-from-file=startup-script=deploy/startup.sh
+```
+
+> The `--disk device-name=dev-agent-data` is what makes the disk appear at
+> `/dev/disk/by-id/google-dev-agent-data`, which `startup.sh` expects.
+> `--scopes=cloud-platform` (plus the SA's IAM role) is what lets ADC read
+> Secret Manager.
+
+## First boot
+
+`startup.sh` runs automatically as root. It is idempotent — safe to re-run via
+`sudo google_metadata_script_runner startup`. Watch it:
+
+```bash
+gcloud compute ssh dev-agent --zone=europe-west1-b
+sudo journalctl -u google-startup-scripts -f      # provisioning
+sudo journalctl -u dev-agent -f                    # the host service
+systemctl is-active dev-agent
+```
+
+## Redeploy (new code)
+
+```bash
+gcloud compute ssh dev-agent --zone=europe-west1-b
+sudo -u devagent REPO_BRANCH=main bash /opt/vatedge-dev-agent/deploy/deploy.sh
+```
+
+`deploy.sh` fetches + hard-resets the branch, installs with the frozen lockfile,
+rebuilds the host and the agent container image, then restarts and verifies the
+service.
+
+## State on the data disk
+
+`/mnt/dev-agent-data/{data,groups,store}` are symlinked back into the install
+dir, so a redeploy (or even a fresh re-clone) never loses session DBs, group
+config, or the object store. `claude-mem`, `docker` (Docker data-root), and
+`repo-cache` also live on the data disk.
