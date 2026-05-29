@@ -168,6 +168,23 @@ done
 chown -h "${RUN_USER}:${RUN_GROUP}" "${INSTALL_DIR}"/{data,groups,store}
 chown -R "${RUN_USER}:${RUN_GROUP}" "${DATA_DIR}"/{data,groups,store,claude-mem}
 
+# ── 5b. Mount allowlist (mount-security gate) ─────────────────────────────────
+# NanoClaw's mount-security BLOCKS every additional container mount unless an
+# allowlist exists at ~/.config/nanoclaw/mount-allowlist.json. Without this the
+# agent's repo mount (/mnt/dev-agent-data/repo-cache/*) is silently rejected and
+# the container comes up with no codebase. Lives on the boot disk, so it must be
+# (re)created here on every provision.
+log "Writing mount allowlist for ${RUN_USER}"
+sudo -u "${RUN_USER}" mkdir -p "/home/${RUN_USER}/.config/nanoclaw"
+sudo -u "${RUN_USER}" tee "/home/${RUN_USER}/.config/nanoclaw/mount-allowlist.json" >/dev/null <<JSON
+{
+  "allowedRoots": [
+    { "path": "${DATA_DIR}/repo-cache", "allowReadWrite": true }
+  ],
+  "blockedPatterns": []
+}
+JSON
+
 # ── 6. Build + deploy (as devagent) ───────────────────────────────────────────
 log "Running deploy.sh as ${RUN_USER}"
 sudo -u "${RUN_USER}" REPO_BRANCH="${REPO_BRANCH}" bash "${INSTALL_DIR}/deploy/deploy.sh" --skip-restart
