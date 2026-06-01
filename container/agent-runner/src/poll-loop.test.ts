@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 
 import { initTestSessionDb, closeSessionDb, getInboundDb, getOutboundDb } from './db/connection.js';
 import { getPendingMessages, markCompleted } from './db/messages-in.js';
-import { getUndeliveredMessages } from './db/messages-out.js';
+import {
+  getUndeliveredMessages,
+  writeMessageOut,
+  getMessageOutCount,
+  getReactionOutCount,
+} from './db/messages-out.js';
 import { formatMessages, extractRouting } from './formatter.js';
 import { isCorruptionError } from './poll-loop.js';
 import { MockProvider } from './providers/mock.js';
@@ -376,6 +381,86 @@ describe('end-to-end with mock provider', () => {
     expect(outMessages).toHaveLength(1);
     expect(JSON.parse(outMessages[0].content).text).toBe('The answer is 4');
     expect(outMessages[0].in_reply_to).toBe('m1');
+  });
+});
+
+describe('outbound counters (silent-turn safety net)', () => {
+  // The poll loop diffs getMessageOutCount()/getReactionOutCount() across each
+  // turn to distinguish a real reply from a bare reaction. These tests pin the
+  // content-based classification that writeMessageOut() does on every write.
+  function writeChat(text: string) {
+    writeMessageOut({
+      id: `out-${text}`,
+      kind: 'chat',
+      platform_id: 'chan-1',
+      channel_type: 'slack',
+      thread_id: null,
+      content: JSON.stringify({ text }),
+    });
+  }
+
+  function writeReaction(emoji: string) {
+    writeMessageOut({
+      id: `rx-${emoji}`,
+      kind: 'chat',
+      platform_id: 'chan-1',
+      channel_type: 'slack',
+      thread_id: null,
+      content: JSON.stringify({ operation: 'reaction', messageId: 'p-1', emoji }),
+    });
+  }
+
+  it('a text message increments messages, not reactions', () => {
+    const m0 = getMessageOutCount();
+    const r0 = getReactionOutCount();
+    writeChat('hello');
+    expect(getMessageOutCount()).toBe(m0 + 1);
+    expect(getReactionOutCount()).toBe(r0);
+  });
+
+  it('a reaction increments reactions, not messages', () => {
+    const m0 = getMessageOutCount();
+    const r0 = getReactionOutCount();
+    writeReaction('eyes');
+    expect(getReactionOutCount()).toBe(r0 + 1);
+    expect(getMessageOutCount()).toBe(m0);
+  });
+
+  it('an edit counts as a message (communication), not a reaction', () => {
+    const m0 = getMessageOutCount();
+    const r0 = getReactionOutCount();
+    writeMessageOut({
+      id: 'edit-1',
+      kind: 'chat',
+      platform_id: 'chan-1',
+      channel_type: 'slack',
+      thread_id: null,
+      content: JSON.stringify({ operation: 'edit', messageId: 'p-1', text: 'fixed' }),
+    });
+    expect(getMessageOutCount()).toBe(m0 + 1);
+    expect(getReactionOutCount()).toBe(r0);
+  });
+
+  it('reaction-only turn: message delta is 0 while reaction delta is positive', () => {
+    // This is exactly the "👀 then stop" failure the poll loop nudges on.
+    const m0 = getMessageOutCount();
+    const r0 = getReactionOutCount();
+    writeReaction('eyes');
+    expect(getMessageOutCount() - m0).toBe(0);
+    expect(getReactionOutCount() - r0).toBeGreaterThan(0);
+  });
+
+  it('non-JSON content is treated as a message', () => {
+    const m0 = getMessageOutCount();
+    writeMessageOut({
+      id: 'raw-1',
+      kind: 'chat',
+      platform_id: 'chan-1',
+      channel_type: 'slack',
+      thread_id: null,
+      content: 'plain text, not json',
+    });
+    expect(getMessageOutCount()).toBe(m0 + 1);
   });
 });
 

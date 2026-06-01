@@ -28,9 +28,10 @@ If you're unsure which message is meant, ask one short question rather than gues
 
 ## Step 0 — Handshake
 
-The instant the mention arrives, add the 👀 reaction to the message you were
-mentioned on. It's the "I see you, working on it" handshake — add it *before* you
-start reading logs, not after.
+The instant the mention arrives, send a one-line text acknowledgment via
+`send_message` (e.g. "On it — pulling the build logs now."), in the same turn,
+*before* you start reading logs. Keep working and reply in that same turn — don't
+end your turn on the acknowledgment, and never use a reaction in its place.
 
 ## Step 1 — Parse the failure notification
 

@@ -33,6 +33,27 @@ export interface WriteMessageOut {
 }
 
 /**
+ * Per-process tally of outbound rows, split into user-facing messages
+ * (send_message / send_file / edit, dispatched <message> blocks, error and
+ * clear notices) vs. bare reactions. The poll loop snapshots these around each
+ * agent turn to catch the "reacted then went silent" failure mode: a turn that
+ * emits only a reaction (or nothing) never reaches the user as a reply.
+ * Counters are monotonic and process-local; callers diff against a baseline.
+ * Every outbound write funnels through writeMessageOut(), so this is the one
+ * place that sees them all.
+ */
+let messageOutCount = 0;
+let reactionOutCount = 0;
+
+export function getMessageOutCount(): number {
+  return messageOutCount;
+}
+
+export function getReactionOutCount(): number {
+  return reactionOutCount;
+}
+
+/**
  * Write a new outbound message, auto-assigning an odd seq number.
  * Container uses odd seq (1, 3, 5...), host uses even (2, 4, 6...).
  *
@@ -72,6 +93,17 @@ export function writeMessageOut(msg: WriteMessageOut): number {
       $thread_id: msg.thread_id ?? null,
       $content: msg.content,
     });
+
+  // Tally for the poll loop's silent-turn detection. Reactions carry
+  // {operation:"reaction"} in content; everything else is a user-facing
+  // message (or an edit, which still communicates).
+  try {
+    const parsed = JSON.parse(msg.content) as { operation?: string };
+    if (parsed.operation === 'reaction') reactionOutCount++;
+    else messageOutCount++;
+  } catch {
+    messageOutCount++;
+  }
 
   return nextSeq;
 }

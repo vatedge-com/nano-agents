@@ -1,6 +1,6 @@
 import { findByName, getAllDestinations, type DestinationEntry } from './destinations.js';
 import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } from './db/messages-in.js';
-import { writeMessageOut } from './db/messages-out.js';
+import { writeMessageOut, getMessageOutCount, getReactionOutCount } from './db/messages-out.js';
 import { getInboundDb, touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
 import { clearContinuation, migrateLegacyContinuation, setContinuation } from './db/session-state.js';
 import { clearCurrentInReplyTo, setCurrentInReplyTo } from './current-batch.js';
@@ -303,6 +303,13 @@ async function processQuery(
   let queryContinuation: string | undefined;
   let done = false;
   let unwrappedNudged = false;
+  let reactionOnlyNudged = false;
+
+  // Baselines for the silent-turn safety net. Snapshotted here and reset after
+  // each 'result' so every agent turn (the first batch plus any follow-up
+  // pushes into this same open query) measures its own outbound deltas.
+  let baselineMessages = getMessageOutCount();
+  let baselineReactions = getReactionOutCount();
 
   // Concurrent polling: push follow-ups into the active query as they arrive.
   // We do NOT force-end the stream on silence — keeping the query open avoids
@@ -440,10 +447,12 @@ async function processQuery(
         // (send_message) mid-turn, or the message may not need a response
         // at all — either way the turn is finished.
         markCompleted(initialBatchIds);
+        let nudgedThisResult = false;
         if (event.text) {
           const { hasUnwrapped } = dispatchResultText(event.text, routing);
           if (hasUnwrapped && !unwrappedNudged) {
             unwrappedNudged = true;
+            nudgedThisResult = true;
             const destinations = getAllDestinations();
             const names = destinations.map((d) => d.name).join(', ');
             query.push(
@@ -454,6 +463,36 @@ async function processQuery(
             );
           }
         }
+
+        // Silent-turn safety net. Every turn that reaches here was triggered
+        // (the outer loop only runs the provider when the batch has a
+        // trigger=1 message), so the user is expecting a reply. Measure what
+        // actually went out this turn:
+        //   - reacted but sent no message → the "👀 then stop" failure mode;
+        //     a bare reaction leaves the user waiting. Nudge once to reply.
+        //   - nothing sent at all → log it. Could be a silent drop, but could
+        //     also be deliberate silence in a followed thread (which the agent
+        //     is allowed to choose), so don't nudge — just make it visible.
+        // Skip entirely if we already nudged for unwrapped text above.
+        if (!nudgedThisResult) {
+          const sentMessages = getMessageOutCount() - baselineMessages;
+          const sentReactions = getReactionOutCount() - baselineReactions;
+          if (sentMessages === 0 && sentReactions > 0 && !reactionOnlyNudged) {
+            reactionOnlyNudged = true;
+            query.push(
+              `<system>You reacted to the message but never sent a reply, so the user only sees a bare reaction and is still waiting. ` +
+                `A reaction is not a substitute for an answer. Send your actual reply now via send_message ` +
+                `(or a <message to="name"> block) — do not end your turn until you have.</system>`,
+            );
+          } else if (sentMessages === 0 && sentReactions === 0) {
+            log('WARNING: turn ended with nothing delivered to the user (no message, no reaction) — possible silent drop');
+          }
+        }
+
+        // Reset baselines so the next turn in this same open query (a follow-up
+        // push produces another 'result') measures only its own output.
+        baselineMessages = getMessageOutCount();
+        baselineReactions = getReactionOutCount();
       }
     }
   } finally {

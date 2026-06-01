@@ -23,8 +23,8 @@ Phase 1 has **two distinct steps**, both mandatory. You do NOT move to Phase 2 u
 
 ```dot
 digraph clarify {
-    "Receive request" -> "Add :eyes: reaction immediately";
-    "Add :eyes: reaction immediately" -> "Read what you need (1-3 files max)";
+    "Receive request" -> "Send one-line text ack via send_message";
+    "Send one-line text ack via send_message" -> "Read what you need (1-3 files max)";
     "Read what you need (1-3 files max)" -> "Genuine ambiguities?";
     "Genuine ambiguities?" -> "Reply with questions (1-4)" [label="yes"];
     "Genuine ambiguities?" -> "Reply 'No further questions.' then go to Step 2" [label="no"];
@@ -62,7 +62,7 @@ When (and only when) you have explicit approval, write the state file with `stag
 - **NEVER start coding (Phase 2) without explicit go-ahead from Step 2.** Coding without approval is the worst failure mode of this skill. Even when the request looks fully specified ("change label X to Y"), STILL post the plan and STILL wait for go-ahead — the user wants the chance to course-correct before any branch exists.
 - **NEVER conflate Step 1 and Step 2.** "No further questions" is not approval; the user must see the plan and explicitly approve.
 - **NEVER stay silent for more than ~60 seconds.** If reading the codebase is taking longer, send a one-line check-in: "Looking at `<area>` — back in a sec." Silent typing-indicator for minutes is a UX failure.
-- The :eyes: reaction is added the instant the message arrives, BEFORE any reading. It's the "I see you" handshake, not an "I'm done" badge — don't react late.
+- The one-line text acknowledgment goes out the instant the request arrives, via `send_message`, BEFORE any reading — and in the SAME turn as your investigation. It's your "I see you, on it" handshake. Never substitute a reaction for it, and never end your turn on the acknowledgment: you only run when a new message arrives, so a turn that produces only an ack (or only a reaction) reads as silence until someone nudges you.
 
 ## Phase 2 — Develop on the task branch
 
