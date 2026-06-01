@@ -425,6 +425,7 @@ function buildContainerArgs(
     'CLICKUP_API_TOKEN',
     'CLICKUP_TEAM_ID',
     'GOOGLE_APPLICATION_CREDENTIALS',
+    'MONGODB_STAGING_URL',
   ] as const;
   const secrets = getScopedSecrets();
   for (const key of CONTAINER_SECRET_KEYS) {

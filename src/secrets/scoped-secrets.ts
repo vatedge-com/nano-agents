@@ -15,6 +15,7 @@ export interface ScopedSecrets {
   CLICKUP_API_TOKEN?: string; // ClickUp pk_ personal API token
   CLICKUP_TEAM_ID?: string; // ClickUp workspace/team id
   GOOGLE_APPLICATION_CREDENTIALS?: string; // path inside container to SA key json
+  MONGODB_STAGING_URL?: string; // staging MongoDB connection string for the mongodb MCP server
   [key: string]: string | undefined;
 }
 
@@ -29,6 +30,7 @@ const KNOWN_KEYS: ReadonlyArray<keyof ScopedSecrets> = [
   'CLICKUP_API_TOKEN',
   'CLICKUP_TEAM_ID',
   'GOOGLE_APPLICATION_CREDENTIALS',
+  'MONGODB_STAGING_URL',
 ];
 
 /**
@@ -46,6 +48,7 @@ const GCP_SECRET_KEYS: ReadonlyArray<keyof ScopedSecrets> = [
   'SLACK_TEAM_ID',
   'CLICKUP_API_TOKEN',
   'CLICKUP_TEAM_ID',
+  'MONGODB_STAGING_URL',
 ];
 
 // Process-lifetime cache for the gcp backend. getScopedSecrets() is sync and

@@ -81,22 +81,18 @@ DEV_PID=$!
 sleep 3
 ```
 
-Then use `agent-browser` to verify:
+Then drive a real browser with the **Playwright MCP tools** (`browser_navigate`, `browser_resize`, `browser_take_screenshot`, `browser_console_messages`):
 
-```bash
-# Desktop (1280px)
-agent-browser open http://localhost:3000
-agent-browser screenshot desktop.png
+- `browser_navigate` → `http://localhost:3000`
+- Desktop: `browser_resize` to 1280×800, then `browser_take_screenshot` with filename `desktop.png`
+- Tablet: `browser_resize` to 768×1024, then `browser_take_screenshot` with filename `tablet.png`
 
-# Tablet (768px)
-agent-browser eval "window.resizeTo(768, 1024)"
-agent-browser screenshot tablet.png
-```
+Screenshots are saved to `/workspace/agent/screenshots/`. To show one in chat, `send_file` it with a path relative to `/workspace/agent/` (e.g. `screenshots/desktop.png`).
 
 **Always verify:**
 
 - [ ] Page loads without errors
-- [ ] Console has no errors: `agent-browser eval "JSON.stringify(window.__errors || [])"`
+- [ ] Console is clean — check `browser_console_messages`
 - [ ] No horizontal scrollbars or layout overflow
 
 **Verify when relevant to the change:**
@@ -118,14 +114,13 @@ vercel deploy --yes --prod --token placeholder --cwd /path/to/project
 
 ### 6. Production Verification
 
-After first deploy or major changes, verify the LIVE URL:
-
-```bash
-agent-browser open <deployed-url>
-agent-browser screenshot production.png
-```
+After first deploy or major changes, verify the LIVE URL: `browser_navigate` to the deployed URL, then `browser_take_screenshot` with filename `production.png`.
 
 If anything looks broken compared to local, fix it and redeploy.
+
+### 7. Show Client-Facing Changes in Slack
+
+If the change touches something a **customer/end-user will see** (a page, component, email, or flow in the product UI — not internal tooling or config), don't just describe it. Capture the changed screen with `browser_take_screenshot` and `send_file` the PNG into the Slack thread so the reviewer sees exactly what shipped. Include a one-line caption of what changed. For before/after, send both screenshots.
 
 ## Iteration Protocol
 
