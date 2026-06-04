@@ -22,13 +22,14 @@ this runbook covers VM creation, first boot, and redeploys.
 | File | Role |
 |------|------|
 | `startup.sh` | Root, idempotent VM startup script. Mounts the data disk, installs Docker/Node/pnpm/git/gh, creates `devagent`, clones the fork, symlinks `data/groups/store` onto the data disk, runs `deploy.sh`, installs+enables the systemd unit. |
-| `deploy.sh` | Redeploy path (runs as `devagent`): `git reset --hard`, `pnpm install --frozen-lockfile`, `pnpm run build`, `./container/build.sh`, restart service. |
+| `deploy.sh` | Redeploy path (runs as `devagent`): `git reset --hard origin/main`, `pnpm install --frozen-lockfile`, `pnpm run build`, `./container/build.sh`, reconcile group config (`groups.config.json` → DB, non-fatal), restart service. |
+| `.github/workflows/deploy.yml` | Push-to-`main` auto-deploy: gated on green CI, authenticates via Workload Identity Federation, IAP-SSHes in as `devagent`, runs `deploy.sh`. |
 | `dev-agent.service` | systemd unit. `SECRETS_BACKEND=gcp`, `GCP_PROJECT=vatedge-prod`, `CLAUDE_MEM_PLUGIN_DIR=/mnt/dev-agent-data/claude-mem`. No secret env file. |
 
-## Before first boot — edit these
+## Before first boot — confirm these
 
-1. `startup.sh`: set `REPO_URL` and `REPO_BRANCH` (marked `# TODO`).
-2. `deploy.sh`: confirm the `REPO_BRANCH` default matches.
+1. `startup.sh`: `REPO_URL` / `REPO_BRANCH` (defaults: the private fork, `main`).
+2. `deploy.sh`: `REPO_BRANCH` default matches (`main`).
 
 ## Secrets (GCP Secret Manager)
 
@@ -110,8 +111,54 @@ sudo -u devagent REPO_BRANCH=main bash /opt/vatedge-dev-agent/deploy/deploy.sh
 ```
 
 `deploy.sh` fetches + hard-resets the branch, installs with the frozen lockfile,
-rebuilds the host and the agent container image, then restarts and verifies the
-service.
+rebuilds the host and the agent container image, reconciles group config, then
+restarts and verifies the service.
+
+## Automated deploy (push to `main`)
+
+`main` is the canonical mainline and the deployed branch. Merging to `main`
+deploys automatically:
+
+```
+push to main → CI (.github/workflows/ci.yml) → green → Deploy (deploy.yml)
+                                                          │
+                              WIF auth (no stored key) → IAP SSH as devagent
+                                                          │
+                                          REPO_BRANCH=main bash deploy/deploy.sh
+```
+
+- **Gate:** `deploy.yml` triggers via `workflow_run` on a *successful* CI run on
+  `main`, so a red CI never deploys. `concurrency: deploy-prod` serialises deploys.
+- **Auth:** Workload Identity Federation — GitHub's OIDC token impersonates
+  `dev-agent-deployer@vatedge-prod.iam.gserviceaccount.com` (no SA key stored).
+  Repo vars `GCP_WIF_PROVIDER` + `GCP_DEPLOY_SA` point at the pool/provider.
+- **Deployer SA IAM (minimal):** custom role `devAgentDeployer`
+  (`compute.instances.get`/`list`/`setMetadata`, `compute.projects.get`,
+  `compute.zones.get`, `compute.zoneOperations.get`) + `roles/iap.tunnelResourceAccessor`
+  + `roles/iam.serviceAccountUser` on the VM's attached `dev-agent@` SA (required to
+  set instance metadata / push the ephemeral SSH key).
+- **Unattended restart:** `deploy.sh`'s only privileged step is
+  `sudo systemctl restart dev-agent`; `/etc/sudoers.d/dev-agent-deploy` grants
+  `devagent` NOPASSWD for exactly that one command (installed by `startup.sh`).
+- **Manual trigger / smoke test:** `gh workflow run deploy.yml --ref main`
+  (`deploy.yml` also has `workflow_dispatch`).
+
+### Group config (`groups.config.json`)
+
+Per-group container config (model, skills, MCP servers, packages, mounts) is
+git-driven. `deploy.sh` runs `scripts/reconcile-container-configs.ts apply`, which
+upserts each entry (keyed by group **folder**) into the `container_configs` DB.
+It is **upsert-only** — never deletes groups, never touches runtime state
+(`tasks/`, `CLAUDE.local.md`) or the runtime-derived `image_tag`. Bootstrap/inspect:
+
+```bash
+# Regenerate the file from the live DB (on the VM):
+pnpm exec tsx scripts/reconcile-container-configs.ts export --write
+# Preview a change without writing:
+pnpm exec tsx scripts/reconcile-container-configs.ts apply --dry-run
+```
+
+A reconciled change takes effect on the group's next container spawn.
 
 ## State on the data disk
 
