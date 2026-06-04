@@ -1,0 +1,71 @@
+name: Deploy
+
+# Push-to-main auto-deploy for the dev-agent prod VM.
+#
+# Trigger: a successful CI run on `main` (workflow_run gate). CI also runs on
+# push to main (see ci.yml), so a merge to main → CI → (green) → this deploy.
+#
+# Auth: Workload Identity Federation (no stored SA key). The federated identity
+# impersonates the deploy SA, then `gcloud compute ssh` opens an IAP tunnel to
+# the VM and runs deploy/deploy.sh as `devagent` (who owns /opt/vatedge-dev-agent
+# and has a NOPASSWD sudoers entry for `systemctl restart dev-agent`).
+#
+# Required repo configuration (Settings → Secrets and variables → Actions):
+#   vars.GCP_WIF_PROVIDER  full resource name of the WIF provider
+#                          projects/<num>/locations/global/workloadIdentityPools/<pool>/providers/<prov>
+#   vars.GCP_DEPLOY_SA     deploy SA email (dev-agent-deployer@vatedge-prod.iam.gserviceaccount.com)
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {} # manual re-deploy / smoke test
+
+# Never let two deploys race onto the VM.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for Workload Identity Federation
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Gate: only deploy when CI succeeded (workflow_dispatch has no workflow_run
+    # payload, so allow that path through too).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    env:
+      GCP_PROJECT: vatedge-prod
+      VM_INSTANCE: dev-agent
+      VM_ZONE: europe-west1-b
+      VM_USER: devagent
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy (IAP SSH → deploy.sh as devagent)
+        run: |
+          gcloud compute ssh "${VM_USER}@${VM_INSTANCE}" \
+            --project "${GCP_PROJECT}" \
+            --zone "${VM_ZONE}" \
+            --tunnel-through-iap \
+            --command 'REPO_BRANCH=main bash /opt/vatedge-dev-agent/deploy/deploy.sh'
+
+      - name: Report deployed commit
+        run: |
+          gcloud compute ssh "${VM_USER}@${VM_INSTANCE}" \
+            --project "${GCP_PROJECT}" \
+            --zone "${VM_ZONE}" \
+            --tunnel-through-iap \
+            --command 'echo "HEAD=$(git -C /opt/vatedge-dev-agent rev-parse HEAD) active=$(systemctl is-active dev-agent)"'

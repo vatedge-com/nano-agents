@@ -15,7 +15,7 @@ set -euo pipefail
 
 INSTALL_DIR="/opt/vatedge-dev-agent"
 # Branch is passed in by startup.sh; defaults match startup.sh for manual redeploys.
-REPO_BRANCH="${REPO_BRANCH:-fork-strip}"
+REPO_BRANCH="${REPO_BRANCH:-main}"
 GCP_PROJECT="${GCP_PROJECT:-vatedge-prod}"
 GITHUB_TOKEN_SECRET="${GITHUB_TOKEN_SECRET:-dev-agent-github_token}"
 
@@ -53,6 +53,15 @@ log "Building agent container image"
 if [ "${SKIP_RESTART}" -eq 1 ]; then
   log "Skipping service restart (--skip-restart)"
   exit 0
+fi
+
+# Reconcile git-driven per-group container config into the central DB. Runs only
+# in the normal redeploy path (the service has run before, so the DB is migrated
+# and groups exist). No-op if groups.config.json is absent. Non-fatal: a config
+# hiccup must never block the code deploy + restart — it is logged loudly instead.
+log "Reconciling group container-config from groups.config.json"
+if ! pnpm exec tsx scripts/reconcile-container-configs.ts apply; then
+  log "WARN: group-config reconcile failed — continuing with code deploy"
 fi
 
 log "Restarting dev-agent service"

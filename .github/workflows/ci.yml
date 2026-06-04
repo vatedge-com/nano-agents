@@ -3,6 +3,10 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  # Also run on the merge commit so the push-to-deploy pipeline (deploy.yml) has a
+  # green CI run on `main` to gate on via workflow_run.
+  push:
+    branches: [main]
 
 jobs:
   ci:

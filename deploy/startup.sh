@@ -21,10 +21,11 @@
 set -euo pipefail
 
 # ── Operator-configurable ─────────────────────────────────────────────────────
-# The fork's private git remote + branch.
+# The fork's private git remote + branch. `main` is the canonical mainline and
+# the branch the push-to-deploy pipeline ships (see .github/workflows/deploy.yml).
 REPO_HOST="github.com/vatedge-com/nano-agents.git"
 REPO_URL="https://${REPO_HOST}"
-REPO_BRANCH="fork-strip"
+REPO_BRANCH="main"
 
 # GCP project + the Secret Manager secret holding a GitHub token with read
 # access to the private fork (used only to clone; runtime secrets are fetched by
@@ -188,6 +189,27 @@ JSON
 # ── 6. Build + deploy (as devagent) ───────────────────────────────────────────
 log "Running deploy.sh as ${RUN_USER}"
 sudo -u "${RUN_USER}" REPO_BRANCH="${REPO_BRANCH}" bash "${INSTALL_DIR}/deploy/deploy.sh" --skip-restart
+
+# ── 6b. Sudoers drop-in for unattended redeploys ──────────────────────────────
+# The push-to-deploy pipeline SSHes in as ${RUN_USER} and runs deploy.sh, whose
+# only privileged step is `systemctl restart dev-agent`. Grant exactly that one
+# command NOPASSWD so the deploy is non-interactive. Scoped to a single command —
+# no blanket sudo. Validated with `visudo -c` before install so a bad file can
+# never lock out sudo.
+log "Installing sudoers drop-in for ${RUN_USER} (NOPASSWD: systemctl restart dev-agent)"
+SUDOERS_TMP="$(mktemp)"
+cat > "${SUDOERS_TMP}" <<EOF
+${RUN_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart dev-agent
+EOF
+chmod 0440 "${SUDOERS_TMP}"
+if visudo -c -f "${SUDOERS_TMP}" >/dev/null; then
+  install -m 0440 -o root -g root "${SUDOERS_TMP}" /etc/sudoers.d/dev-agent-deploy
+else
+  echo "FATAL: sudoers drop-in failed validation" >&2
+  rm -f "${SUDOERS_TMP}"
+  exit 1
+fi
+rm -f "${SUDOERS_TMP}"
 
 # ── 7. Install + enable the systemd unit ──────────────────────────────────────
 log "Installing systemd unit"
