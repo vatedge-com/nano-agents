@@ -68,6 +68,27 @@ mountpoint -q "${DATA_DIR}" || mount "${DATA_DIR}"
 # Persistent subdirectories on the data disk.
 mkdir -p "${DATA_DIR}"/{data,groups,store,claude-mem,docker,repo-cache}
 
+# ── 1b. Swapfile (OOM insurance for the burst workload) ───────────────────────
+# The VM is sized for the idle Slack listener, not the worst case: up to
+# MAX_CONCURRENT_CONTAINERS group containers can each run a heavy build (the
+# vatedge tsc build alone wants ~4 GB Node heap) plus a Chromium for Playwright.
+# An 8 GB swapfile on the data disk lets a rare concurrent-build spike spill to
+# disk (slow) instead of OOM-killing the agent mid-task. Idempotent.
+SWAPFILE="${DATA_DIR}/swapfile"
+if ! swapon --show=NAME --noheadings | grep -qx "${SWAPFILE}"; then
+  if [ ! -f "${SWAPFILE}" ]; then
+    log "Creating 8G swapfile at ${SWAPFILE}"
+    fallocate -l 8G "${SWAPFILE}" || dd if=/dev/zero of="${SWAPFILE}" bs=1M count=8192
+    chmod 600 "${SWAPFILE}"
+    mkswap "${SWAPFILE}"
+  fi
+  swapon "${SWAPFILE}"
+fi
+if ! grep -q "${SWAPFILE}" /etc/fstab; then
+  log "Adding swapfile to /etc/fstab (nofail)"
+  echo "${SWAPFILE} none swap sw,nofail 0 0" >> /etc/fstab
+fi
+
 # ── 2. Install Docker (data-root on the data disk) ────────────────────────────
 if ! command -v docker >/dev/null 2>&1; then
   log "Installing Docker"
