@@ -26,7 +26,7 @@ Environment=TZ=Europe/Brussels
 # the SLACK_APP_TOKEN secret must be removed/unset. IDLE_STOP_MINUTES stops this
 # VM after that many minutes idle; the gateway wakes it on the next event.
 Environment=SLACK_GATEWAY_SUBSCRIPTION=dev-agent-slack-events-sub
-Environment=IDLE_STOP_MINUTES=30
+Environment=IDLE_STOP_MINUTES=15
 
 ExecStart=/usr/bin/node /opt/vatedge-dev-agent/dist/index.js
 Restart=always
