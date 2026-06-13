@@ -20,6 +20,14 @@ Environment=MAX_CONCURRENT_CONTAINERS=3
 Environment=CONTAINER_TIMEOUT=1800000
 Environment=TZ=Europe/Brussels
 
+# Wake-on-message model (see deploy/slack-gateway/README.md). With
+# SLACK_GATEWAY_SUBSCRIPTION set, inbound Slack events are pulled from Pub/Sub
+# (the slack-gateway Cloud Function publishes them) instead of Socket Mode, so
+# the SLACK_APP_TOKEN secret must be removed/unset. IDLE_STOP_MINUTES stops this
+# VM after that many minutes idle; the gateway wakes it on the next event.
+Environment=SLACK_GATEWAY_SUBSCRIPTION=dev-agent-slack-events-sub
+Environment=IDLE_STOP_MINUTES=30
+
 ExecStart=/usr/bin/node /opt/vatedge-dev-agent/dist/index.js
 Restart=always
 RestartSec=5

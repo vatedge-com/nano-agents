@@ -1,0 +1,14 @@
+{
+  "name": "slack-gateway",
+  "version": "1.0.0",
+  "description": "Always-on Slack Events API receiver that buffers to Pub/Sub and wakes the dev-agent VM.",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@google-cloud/compute": "4.12.0",
+    "@google-cloud/pubsub": "4.11.0"
+  }
+}

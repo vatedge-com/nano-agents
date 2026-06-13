@@ -37,6 +37,22 @@ export const MAX_MESSAGES_PER_PROMPT = Math.max(1, parseInt(process.env.MAX_MESS
 export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min default — how long to keep container alive after last result
 export const MAX_CONCURRENT_CONTAINERS = Math.max(1, parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5);
 
+// Wake-on-message model (see src/idle-stop.ts, src/channels/slack-pubsub.ts).
+// SLACK_GATEWAY_SUBSCRIPTION: Pub/Sub pull subscription the slack-gateway Cloud
+// Function publishes Slack events to. When set, the Slack adapter uses the
+// Pub/Sub transport instead of Socket Mode / webhook.
+export const SLACK_GATEWAY_SUBSCRIPTION =
+  process.env.SLACK_GATEWAY_SUBSCRIPTION ||
+  readEnvFile(['SLACK_GATEWAY_SUBSCRIPTION']).SLACK_GATEWAY_SUBSCRIPTION ||
+  '';
+// IDLE_STOP_MINUTES: stop the VM after this many minutes fully idle. 0 / unset
+// disables self-stop (always-on). Default 30.
+export const IDLE_STOP_MS =
+  Math.max(
+    0,
+    parseInt(process.env.IDLE_STOP_MINUTES || readEnvFile(['IDLE_STOP_MINUTES']).IDLE_STOP_MINUTES || '30', 10) || 0,
+  ) * 60_000;
+
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
