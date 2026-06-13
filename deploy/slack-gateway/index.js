@@ -23,10 +23,22 @@
 const crypto = require('crypto');
 
 const { PubSub } = require('@google-cloud/pubsub');
-const { InstancesClient } = require('@google-cloud/compute').v1;
 
 const pubsub = new PubSub();
-const instances = new InstancesClient();
+
+// Compute Engine start/get via the REST API + a metadata-server access token.
+// We deliberately avoid the @google-cloud/compute SDK — it loads ~all GCP
+// compute protos and OOMs the function's small memory footprint.
+const METADATA_TOKEN_URL =
+  'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
+
+async function getAccessToken() {
+  const res = await fetch(METADATA_TOKEN_URL, { headers: { 'Metadata-Flavor': 'Google' } });
+  if (!res.ok) throw new Error(`metadata token → ${res.status}`);
+  const { access_token: token } = await res.json();
+  if (!token) throw new Error('metadata token response missing access_token');
+  return token;
+}
 
 const SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET || '';
 const TOPIC = process.env.PUBSUB_TOPIC || 'dev-agent-slack-events';
@@ -71,10 +83,16 @@ function classify(req) {
 
 async function wakeVm() {
   if (!VM_PROJECT || !VM_ZONE || !VM_NAME) return;
-  const [vm] = await instances.get({ project: VM_PROJECT, zone: VM_ZONE, instance: VM_NAME });
-  if (WAKEABLE.has(vm.status)) {
-    await instances.start({ project: VM_PROJECT, zone: VM_ZONE, instance: VM_NAME });
-    console.log(`slack-gateway: started VM ${VM_NAME} (was ${vm.status})`);
+  const token = await getAccessToken();
+  const base = `https://compute.googleapis.com/compute/v1/projects/${VM_PROJECT}/zones/${VM_ZONE}/instances/${VM_NAME}`;
+  const auth = { Authorization: `Bearer ${token}` };
+  const getRes = await fetch(base, { headers: auth });
+  if (!getRes.ok) throw new Error(`instances.get → ${getRes.status}`);
+  const { status } = await getRes.json();
+  if (WAKEABLE.has(status)) {
+    const startRes = await fetch(`${base}/start`, { method: 'POST', headers: auth });
+    if (!startRes.ok) throw new Error(`instances.start → ${startRes.status}`);
+    console.log(`slack-gateway: started VM ${VM_NAME} (was ${status})`);
   }
 }
 

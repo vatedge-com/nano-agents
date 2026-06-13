@@ -73,6 +73,7 @@ gcloud functions deploy "${FUNCTION}" \
   --project "${PROJECT}" --region "${REGION}" --gen2 \
   --runtime nodejs20 --source "${SOURCE_DIR}" --entry-point slackGateway \
   --trigger-http --allow-unauthenticated \
+  --memory 512Mi \
   --service-account "${GATEWAY_SA}" \
   --set-env-vars "PUBSUB_TOPIC=${TOPIC},VM_PROJECT=${PROJECT},VM_ZONE=${VM_ZONE},VM_NAME=${VM_NAME}" \
   --set-secrets "SLACK_SIGNING_SECRET=${SIGNING_SECRET_NAME}:latest"
