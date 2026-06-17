@@ -11,6 +11,7 @@ import path from 'path';
 
 import { getCurrentInReplyTo } from '../current-batch.js';
 import { findByName, getAllDestinations } from '../destinations.js';
+import { getMessageIn } from '../db/messages-in.js';
 import { getMessageIdBySeq, getRoutingBySeq, writeMessageOut } from '../db/messages-out.js';
 import { getSessionRouting } from '../db/session-routing.js';
 import { registerTools } from './server.js';
@@ -53,7 +54,27 @@ function resolveRouting(
   to: string | undefined,
 ): { channel_type: string; platform_id: string; thread_id: string | null; resolvedName: string } | { error: string } {
   if (!to) {
-    // Default: reply to whatever thread/channel this session is bound to.
+    // Default: reply to the channel/thread of the message being answered.
+    // The session-level default (session_routing) is pinned to the session's
+    // ORIGIN messaging group. In an agent-shared session that spans channels
+    // (e.g. a CLI session that also receives Slack mentions), that origin is
+    // not the channel the current message came from — relying on it leaks
+    // replies to the wrong adapter. The in-reply-to message's own address
+    // (stamped by the host in messages_in) is the correct reply target.
+    const inReplyTo = getCurrentInReplyTo();
+    if (inReplyTo) {
+      const msg = getMessageIn(inReplyTo);
+      if (msg?.channel_type && msg.platform_id) {
+        return {
+          channel_type: msg.channel_type,
+          platform_id: msg.platform_id,
+          thread_id: msg.thread_id,
+          resolvedName: '(current conversation)',
+        };
+      }
+    }
+    // No in-reply-to anchor (out-of-batch / scheduled send) — fall back to
+    // the session's default reply routing.
     const session = getSessionRouting();
     if (session.channel_type && session.platform_id) {
       return {
