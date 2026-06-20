@@ -47,7 +47,9 @@
             "--executable-path",
             "/usr/bin/chromium",
             "--output-dir",
-            "/workspace/agent/screenshots"
+            "/workspace/agent/screenshots",
+            "--config",
+            "/app/src/playwright-mcp.config.json"
           ],
           "env": {}
         }

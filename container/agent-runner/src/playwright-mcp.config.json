@@ -1,0 +1,14 @@
+{
+  "browser": {
+    "launchOptions": {
+      "args": [
+        "--disable-gpu",
+        "--disable-software-rasterizer",
+        "--disable-webgl",
+        "--disable-webgl2",
+        "--use-gl=disabled",
+        "--disable-accelerated-2d-canvas"
+      ]
+    }
+  }
+}
